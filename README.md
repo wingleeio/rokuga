@@ -47,9 +47,15 @@ npm run dist:win                                     # NSIS installer
 npm run dist:linux                                   # AppImage
 ```
 
-The mac dmg is **unsigned** (no Apple Developer ID), so on first launch right-click
-the app → Open (or `xattr -dr com.apple.quarantine /Applications/Rokuga.app`). The
-native ScreenCaptureKit addon ships via `extraResources` and the bundled ffmpeg
+The dmg is **ad-hoc signed** (via the `afterPack` hook — required so it runs on
+Apple Silicon) but **not notarized** (no Apple Developer ID). After installing, clear
+the quarantine flag once so macOS doesn't report it as "damaged":
+
+```sh
+xattr -dr com.apple.quarantine /Applications/Rokuga.app
+```
+
+The native ScreenCaptureKit addon ships via `extraResources` and the bundled ffmpeg
 binary via `asarUnpack`, so cursor-free capture and export work in the packaged app.
 
 Other scripts: `npm run build` (bundle main/preload/renderer), `npm run typecheck`.
