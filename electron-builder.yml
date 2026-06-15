@@ -1,0 +1,36 @@
+appId: app.rokuga.studio
+productName: Rokuga
+directories:
+  buildResources: build
+  output: release
+npmRebuild: false
+files:
+  - '!**/.vscode/*'
+  - '!src/*'
+  - '!scripts/*'
+  - '!build/**'
+  - '!release/**'
+  - '!electron.vite.config.{js,ts,mjs,cjs}'
+  - '!{tailwind.config.js,postcss.config.js,binding.gyp,components.json}'
+  - '!{.eslintignore,.eslintrc.cjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
+  - '!{.env,.env.*,.npmrc,pnpm-lock.yaml,package-lock.json}'
+  - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+asarUnpack:
+  - '**/node_modules/ffmpeg-static/**'
+extraResources:
+  - from: build/Release/rokuga_capture.node
+    to: rokuga_capture.node
+mac:
+  category: public.app-category.video
+  target:
+    - dmg
+  identity: null
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+win:
+  target:
+    - nsis
+linux:
+  target:
+    - AppImage
+  category: AudioVideo
