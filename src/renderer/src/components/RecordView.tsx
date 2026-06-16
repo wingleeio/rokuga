@@ -228,7 +228,7 @@ export default function RecordView({ onRecorded, onOpen, busy }: Props): JSX.Ele
   const selectedIsWindow = sources.find((s) => s.id === selected)?.type === 'window'
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full flex-col animate-fade-in">
       <header className="drag flex h-[52px] flex-none items-center justify-between border-b border-border pl-[84px] pr-3">
         <div className="flex items-center gap-2.5">
           <span className="h-2 w-2 rounded-full bg-red-500" />
@@ -244,7 +244,7 @@ export default function RecordView({ onRecorded, onOpen, busy }: Props): JSX.Ele
         </div>
       </header>
 
-      <div className="flex-1 overflow-y-auto px-7 py-6">
+      <div className="flex-1 overflow-y-auto overscroll-contain px-7 py-6">
         {error && (
           <div className="mb-4 rounded-lg border border-destructive/40 bg-destructive/10 px-3.5 py-2.5 text-[13px] text-red-300">
             {error}

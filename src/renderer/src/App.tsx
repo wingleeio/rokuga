@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { toast } from 'sonner'
 import type { ProjectState, RecordingMeta } from '@shared/types'
 import { EditorContext, type EditorContextValue } from './context'
 import { createDefaultProject, normalizeProject } from './lib/project'
 import { generateAutoZoom } from './lib/camera'
 import RecordView from './components/RecordView'
 import EditView from './components/EditView'
+import { TooltipProvider } from './components/ui/tooltip'
+import { Toaster } from './components/ui/sonner'
 
 export interface RecordedClip {
   blob: Blob
@@ -25,6 +28,7 @@ export default function App(): JSX.Element {
   const [playing, setPlaying] = useState(false)
   const [loop, setLoop] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
+  const [dirty, setDirty] = useState(false)
   const [selectedZoom, setSelectedZoom] = useState<string | null>(null)
   const urlRef = useRef<string>('')
 
@@ -59,8 +63,11 @@ export default function App(): JSX.Element {
         setMedia(clip.blob)
         setProjectState(proj)
         setProjectPath(undefined)
+        setDirty(false)
         setPlayhead(0)
         setPlaying(false)
+      } catch (e) {
+        toast.error('Could not save the recording', { description: String(e) })
       } finally {
         setBusy(null)
       }
@@ -77,8 +84,11 @@ export default function App(): JSX.Element {
       setMedia(blob)
       setProjectState(normalizeProject(res.state))
       setProjectPath(res.path)
+      setDirty(false)
       setPlayhead(0)
       setPlaying(false)
+    } catch (e) {
+      toast.error('Could not open project', { description: String(e) })
     } finally {
       setBusy(null)
     }
@@ -90,7 +100,16 @@ export default function App(): JSX.Element {
       setBusy('Saving…')
       try {
         const path = await window.rokuga.saveProject(project, saveAs ? undefined : projectPath)
-        if (path) setProjectPath(path)
+        if (path) {
+          setProjectPath(path)
+          setDirty(false)
+          toast.success('Project saved', {
+            description: path.split('/').pop(),
+            action: { label: 'Show', onClick: () => window.rokuga.reveal(path) }
+          })
+        }
+      } catch (e) {
+        toast.error('Could not save project', { description: String(e) })
       } finally {
         setBusy(null)
       }
@@ -108,8 +127,10 @@ export default function App(): JSX.Element {
 
   const ctx = useMemo<EditorContextValue | null>(() => {
     if (!project) return null
-    const update = (updater: (p: ProjectState) => ProjectState): void =>
+    const update = (updater: (p: ProjectState) => ProjectState): void => {
       setProjectState((prev) => (prev ? updater(prev) : prev))
+      setDirty(true)
+    }
     return {
       project,
       mediaURL,
@@ -163,22 +184,26 @@ export default function App(): JSX.Element {
     }
   }, [project, mediaURL, playhead, playing, loop, selectedZoom])
 
-  if (!project || !ctx || !mediaBlob) {
-    return <RecordView onRecorded={onRecorded} onOpen={openProject} busy={busy} />
-  }
-
   return (
-    <EditorContext.Provider value={ctx}>
-      <EditView
-        mediaBlob={mediaBlob}
-        projectPath={projectPath}
-        busy={busy}
-        onSave={() => saveProject(false)}
-        onSaveAs={() => saveProject(true)}
-        onOpen={openProject}
-        onNewRecording={newRecording}
-        setBusy={setBusy}
-      />
-    </EditorContext.Provider>
+    <TooltipProvider delayDuration={350} skipDelayDuration={300}>
+      {!project || !ctx || !mediaBlob ? (
+        <RecordView onRecorded={onRecorded} onOpen={openProject} busy={busy} />
+      ) : (
+        <EditorContext.Provider value={ctx}>
+          <EditView
+            mediaBlob={mediaBlob}
+            projectPath={projectPath}
+            dirty={dirty}
+            busy={busy}
+            onSave={() => saveProject(false)}
+            onSaveAs={() => saveProject(true)}
+            onOpen={openProject}
+            onNewRecording={newRecording}
+            setBusy={setBusy}
+          />
+        </EditorContext.Provider>
+      )}
+      <Toaster />
+    </TooltipProvider>
   )
 }

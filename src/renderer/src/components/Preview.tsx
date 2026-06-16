@@ -5,6 +5,7 @@ import { Compositor } from '../lib/compositor'
 import { keptDuration, sourceToTimeline, timelineToSource } from '../lib/project'
 import { prepareVideo } from '../lib/video'
 import { Button } from './ui/button'
+import { Hint } from './ui/tooltip'
 import { cn } from '../lib/cn'
 
 interface Props {
@@ -158,29 +159,31 @@ export default function Preview({ mediaURL }: Props): JSX.Element {
         <video ref={videoRef} className="pointer-events-none absolute -left-[9999px] h-px w-px opacity-0" muted playsInline />
       </div>
       <div className="flex items-center justify-center gap-2 py-3">
-        <Button variant="ghost" size="icon-sm" onClick={() => setPlayhead(0)} title="Go to start (Home)">
-          <SkipBack className="fill-current" />
-        </Button>
-        <Button
-          size="icon"
-          onClick={() => setPlaying(!playing)}
-          title={playing ? 'Pause (Space)' : 'Play (Space)'}
-          className="rounded-full"
-        >
-          {playing ? <Pause className="fill-current" /> : <Play className="fill-current" />}
-        </Button>
-        <Button variant="ghost" size="icon-sm" onClick={() => setPlayhead(total)} title="Go to end (End)">
-          <SkipForward className="fill-current" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          onClick={() => setLoop(!loop)}
-          title="Loop (L)"
-          className={cn(loop && 'bg-secondary/60 text-foreground')}
-        >
-          <Repeat />
-        </Button>
+        <Hint label="Go to start" kbd="Home">
+          <Button variant="ghost" size="icon-sm" onClick={() => setPlayhead(0)}>
+            <SkipBack className="fill-current" />
+          </Button>
+        </Hint>
+        <Hint label={playing ? 'Pause' : 'Play'} kbd="Space">
+          <Button size="icon" onClick={() => setPlaying(!playing)} className="rounded-full">
+            {playing ? <Pause className="fill-current" /> : <Play className="fill-current" />}
+          </Button>
+        </Hint>
+        <Hint label="Go to end" kbd="End">
+          <Button variant="ghost" size="icon-sm" onClick={() => setPlayhead(total)}>
+            <SkipForward className="fill-current" />
+          </Button>
+        </Hint>
+        <Hint label="Loop" kbd="L">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => setLoop(!loop)}
+            className={cn(loop && 'bg-secondary/60 text-foreground')}
+          >
+            <Repeat />
+          </Button>
+        </Hint>
         <span className="ml-2 font-mono text-xs tabular text-muted-foreground">
           {fmt(playhead)} / {fmt(total)}
         </span>

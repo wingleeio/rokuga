@@ -39,7 +39,7 @@ export default function Inspector(): JSX.Element {
           </TabsTrigger>
         ))}
       </TabsList>
-      <div className="flex-1 overflow-y-auto p-4">
+      <div key={tab} className="flex-1 animate-fade-in overflow-y-auto overscroll-contain p-4">
         {tab === 'background' && <BackgroundPanel />}
         {tab === 'frame' && <FramePanel />}
         {tab === 'camera' && <CameraPanel />}

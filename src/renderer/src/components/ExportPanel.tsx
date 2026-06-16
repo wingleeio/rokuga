@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import { Loader2 } from 'lucide-react'
+import { toast } from 'sonner'
 import type { ExportFormat, ExportOptions } from '@shared/types'
 import { useEditor } from '../context'
 import { exportProject } from '../lib/export'
@@ -37,11 +39,16 @@ export default function ExportPanel({ mediaBlob, onClose }: Props): JSX.Element 
         setSavedPath(path)
         setStatus('Done')
         setProgress(1)
+        toast.success('Export complete', {
+          description: path.split('/').pop(),
+          action: { label: 'Show', onClick: () => window.rokuga.reveal(path) }
+        })
       } else {
         setStatus('Cancelled')
       }
     } catch (e) {
       setError(String(e))
+      toast.error('Export failed', { description: String(e) })
     } finally {
       setRunning(false)
     }
@@ -110,7 +117,13 @@ export default function ExportPanel({ mediaBlob, onClose }: Props): JSX.Element 
           <Button variant="ghost" onClick={onClose} disabled={running}>
             {savedPath ? 'Close' : 'Cancel'}
           </Button>
+          {savedPath ? (
+            <Button variant="secondary" onClick={() => window.rokuga.reveal(savedPath)}>
+              Show in Finder
+            </Button>
+          ) : null}
           <Button onClick={run} disabled={running}>
+            {running && <Loader2 className="animate-spin" />}
             {running ? 'Exporting…' : 'Export video'}
           </Button>
         </DialogFooter>

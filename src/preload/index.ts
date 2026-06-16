@@ -30,6 +30,7 @@ const api = {
     ipcRenderer.invoke('recording:nativeStop'),
   setPendingSource: (id: string): Promise<boolean> =>
     ipcRenderer.invoke('recording:setPendingSource', id),
+  reveal: (path: string): Promise<boolean> => ipcRenderer.invoke('shell:reveal', path),
 
   saveProject: (state: ProjectState, existingPath?: string): Promise<string | null> =>
     ipcRenderer.invoke('project:save', state, existingPath),

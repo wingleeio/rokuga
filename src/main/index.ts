@@ -20,7 +20,7 @@ function createWindow(): void {
     minWidth: 940,
     minHeight: 640,
     show: false,
-    backgroundColor: '#0c0d12',
+    backgroundColor: '#0a0a0a',
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     title: 'Rokuga',
     icon: existsSync(iconPath) ? iconPath : undefined,
@@ -82,6 +82,11 @@ app.whenReady().then(() => {
 
   ipcMain.handle('recording:setPendingSource', (_e, id: string) => {
     pendingSourceId = id
+    return true
+  })
+
+  ipcMain.handle('shell:reveal', (_e, p: string) => {
+    if (p) shell.showItemInFolder(p)
     return true
   })
 
