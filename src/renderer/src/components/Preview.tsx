@@ -87,6 +87,10 @@ export default function Preview({ mediaURL }: Props): JSX.Element {
     if (!playing) {
       video.pause()
       cancelAnimationFrame(rafRef.current)
+      // Snap to the exact (un-smoothed) camera pose so a zoom-out settles
+      // perfectly centered instead of freezing mid-ease.
+      compRef.current?.resetSmoothing()
+      renderNow()
       return
     }
 

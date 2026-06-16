@@ -21,7 +21,9 @@ function createWindow(): void {
     minHeight: 640,
     show: false,
     backgroundColor: '#0a0a0a',
-    titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
+    titleBarStyle: process.platform === 'darwin' ? 'hidden' : 'default',
+    // Vertically center the traffic lights within the 52px top bar.
+    trafficLightPosition: process.platform === 'darwin' ? { x: 19, y: 19 } : undefined,
     title: 'Rokuga',
     icon: existsSync(iconPath) ? iconPath : undefined,
     webPreferences: {
