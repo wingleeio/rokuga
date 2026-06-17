@@ -5,6 +5,7 @@ import { registerRecorderHandlers } from './recorder'
 import { registerProjectHandlers } from './project'
 import { registerExportHandlers } from './exporter'
 import { registerNativeRecordingHandlers } from './sckrecorder'
+import { registerUpdater } from './updater'
 
 // `__dirname` is injected by electron-vite for the main-process bundle.
 
@@ -72,6 +73,7 @@ app.whenReady().then(() => {
   registerProjectHandlers(ipcMain, () => mainWindow)
   registerExportHandlers(ipcMain, () => mainWindow)
   registerNativeRecordingHandlers(ipcMain)
+  registerUpdater(ipcMain, () => mainWindow)
 
   // Generic helpers used by the renderer.
   ipcMain.handle('app:displays', () => {

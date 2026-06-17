@@ -5,6 +5,8 @@ directories:
   output: release
 npmRebuild: false
 afterPack: ./scripts/after-pack.cjs
+# No-op unless Apple credentials are in the environment — see scripts/notarize.cjs.
+afterSign: ./scripts/notarize.cjs
 files:
   - '!**/.vscode/*'
   - '!src/*'
@@ -23,6 +25,13 @@ extraResources:
     to: rokuga_capture.node
 mac:
   category: public.app-category.video
+  # Today: ad-hoc signed (identity: null), notify-only updates (src/main/updater.ts).
+  # To unlock no-prompt launch + silent auto-update once you have an Apple
+  # Developer ID: set identity to your "Developer ID Application" cert (or remove
+  # the line + set CSC_IDENTITY_AUTO_DISCOVERY=true), drop the ad-hoc sign in
+  # scripts/after-pack.cjs, and export APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD /
+  # APPLE_TEAM_ID (scripts/notarize.cjs does the rest). For silent updates, also
+  # add `- zip` to target and switch updater.ts back to electron-updater.
   target:
     - dmg
   identity: null

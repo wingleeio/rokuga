@@ -8,17 +8,25 @@
 #include <string>
 
 API_AVAILABLE(macos(15.0))
-@interface RKDelegate : NSObject <SCStreamDelegate, SCRecordingOutputDelegate>
+@interface RKDelegate : NSObject <SCStreamDelegate, SCRecordingOutputDelegate, SCStreamOutput>
 @end
 @implementation RKDelegate
 - (void)stream:(SCStream *)stream didStopWithError:(NSError *)error {}
 - (void)recordingOutput:(SCRecordingOutput *)recordingOutput didFailWithError:(NSError *)error {}
 - (void)recordingOutputDidStartRecording:(SCRecordingOutput *)recordingOutput {}
 - (void)recordingOutputDidFinishRecording:(SCRecordingOutput *)recordingOutput {}
+// Warm-up sink: keeps the capture pipeline pulling (and discarding) frames
+// before we attach the recording output, so the first recorded frame isn't
+// ScreenCaptureKit's blank warm-up frame (which shows black where the window
+// content hasn't composited yet).
+- (void)stream:(SCStream *)stream
+    didOutputSampleBuffer:(CMSampleBufferRef)sampleBuffer
+                   ofType:(SCStreamOutputType)type {}
 @end
 
 static SCStream *gStream = nil;
 static RKDelegate *gDelegate = nil;
+static dispatch_queue_t gWarmupQueue = nil;
 
 // ---- start() ----
 class StartWorker : public Napi::AsyncWorker {
@@ -74,29 +82,50 @@ class StartWorker : public Napi::AsyncWorker {
               config.height = (size_t)h;
 
               if (!gDelegate) gDelegate = [[RKDelegate alloc] init];
+              if (!gWarmupQueue)
+                gWarmupQueue = dispatch_queue_create("studio.rokuga.warmup", DISPATCH_QUEUE_SERIAL);
               SCStream *stream = [[SCStream alloc] initWithFilter:filter
                                                     configuration:config
                                                          delegate:gDelegate];
+
+              // Attach a no-op screen output so the capture pipeline actually
+              // runs (and discards) frames during warm-up. Without any output,
+              // SCK won't pull frames, and the first recorded frame would still
+              // be the blank/black cold frame.
+              NSError *soErr = nil;
+              [stream addStreamOutput:gDelegate
+                                 type:SCStreamOutputTypeScreen
+                   sampleHandlerQueue:gWarmupQueue
+                                error:&soErr];
+
+              // Build the recording output but DON'T attach it yet.
               SCRecordingOutputConfiguration *rc = [[SCRecordingOutputConfiguration alloc] init];
               rc.outputURL = [NSURL fileURLWithPath:outPath];
               rc.outputFileType = AVFileTypeQuickTimeMovie;
               SCRecordingOutput *rec = [[SCRecordingOutput alloc] initWithConfiguration:rc
                                                                                delegate:gDelegate];
-              NSError *addErr = nil;
-              [stream addRecordingOutput:rec error:&addErr];
-              if (addErr) {
-                errMsg = addErr.localizedDescription;
-                dispatch_semaphore_signal(sem);
-                return;
-              }
+
               [stream startCaptureWithCompletionHandler:^(NSError *e2) {
                 if (e2) {
                   errMsg = e2.localizedDescription;
-                } else {
-                  ok = true;
-                  gStream = stream;
+                  dispatch_semaphore_signal(sem);
+                  return;
                 }
-                dispatch_semaphore_signal(sem);
+                // Let real frames flow for a moment, then start recording from a
+                // warm (non-black) frame. start() resolves only after this, so
+                // the JS cursor track stays aligned with the recording's t=0.
+                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.30 * NSEC_PER_SEC)),
+                               dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+                                 NSError *addErr = nil;
+                                 [stream addRecordingOutput:rec error:&addErr];
+                                 if (addErr) {
+                                   errMsg = addErr.localizedDescription;
+                                 } else {
+                                   ok = true;
+                                   gStream = stream;
+                                 }
+                                 dispatch_semaphore_signal(sem);
+                               });
               }];
             }];
 

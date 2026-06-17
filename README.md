@@ -60,6 +60,16 @@ binary via `asarUnpack`, so cursor-free capture and export work in the packaged 
 
 Other scripts: `npm run build` (bundle main/preload/renderer), `npm run typecheck`.
 
+### Updates
+
+On launch the app checks the GitHub Releases API and, if a newer version is out,
+shows a toast with a **Download** button that opens the release page (notify-only —
+see `src/main/updater.ts`). Silent in-place updates aren't possible while the app is
+only ad-hoc signed: Squirrel.Mac rejects an un-notarized bundle. To enable
+notarization (no quarantine prompt) and true silent auto-update, you need a paid
+Apple Developer ID — `scripts/notarize.cjs` and the comments in
+`electron-builder.yml` lay out exactly what to flip on.
+
 ### macOS permission
 
 The first time you record, macOS will require **Screen Recording** permission for

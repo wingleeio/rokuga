@@ -42,6 +42,17 @@ export default function App(): JSX.Element {
 
   useEffect(() => () => void (urlRef.current && URL.revokeObjectURL(urlRef.current)), [])
 
+  // Notify-only update check: surface a toast when a newer release is out.
+  useEffect(() => {
+    return window.rokuga.onUpdateAvailable(({ version }) => {
+      toast(`Rokuga ${version} is available`, {
+        description: 'A newer version is ready to download.',
+        duration: Infinity,
+        action: { label: 'Download', onClick: () => window.rokuga.openReleases() }
+      })
+    })
+  }, [])
+
   const onRecorded = useCallback(
     async (clip: RecordedClip) => {
       setBusy('Saving recording…')

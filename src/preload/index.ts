@@ -47,7 +47,14 @@ const api = {
   exportCancel: (): Promise<boolean> => ipcRenderer.invoke('export:cancel'),
 
   openFileDialog: (filters: Electron.FileFilter[]): Promise<string | null> =>
-    ipcRenderer.invoke('dialog:openFile', filters)
+    ipcRenderer.invoke('dialog:openFile', filters),
+
+  openReleases: (): Promise<boolean> => ipcRenderer.invoke('update:openReleases'),
+  onUpdateAvailable: (cb: (info: { version: string; url: string }) => void): (() => void) => {
+    const listener = (_e: unknown, info: { version: string; url: string }): void => cb(info)
+    ipcRenderer.on('update:available', listener)
+    return () => ipcRenderer.removeListener('update:available', listener)
+  }
 }
 
 export type RokugaApi = typeof api
