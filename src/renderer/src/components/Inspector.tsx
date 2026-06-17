@@ -31,7 +31,7 @@ export default function Inspector(): JSX.Element {
     <Tabs
       value={tab}
       onValueChange={(v) => setTab(v as Tab)}
-      className="flex w-[320px] flex-none flex-col border-l border-border bg-card/30"
+      className="flex w-[372px] flex-none flex-col border-l border-border bg-card/30"
     >
       <TabsList className="grid w-full grid-cols-6 gap-1 rounded-none border-b border-border bg-transparent p-2">
         {TABS.map((t) => (
