@@ -1,5 +1,6 @@
 import { createContext, useContext } from 'react'
 import type {
+  AudioSettings,
   BackgroundSettings,
   CameraSettings,
   CanvasSettings,
@@ -7,12 +8,15 @@ import type {
   FrameStyle,
   ProjectState,
   TimelineSettings,
+  WebcamSettings,
   ZoomKeyframe
 } from '@shared/types'
 
 export interface EditorContextValue {
   project: ProjectState
   mediaURL: string
+  /** blob URL of the webcam/mic media, or '' if none was captured */
+  cameraURL: string
   /** current playhead in timeline-time seconds */
   playhead: number
   setPlayhead: (t: number) => void
@@ -28,6 +32,8 @@ export interface EditorContextValue {
   setTimeline: (patch: Partial<TimelineSettings>) => void
   setCanvas: (patch: Partial<CanvasSettings>) => void
   setCursor: (patch: Partial<CursorSettings>) => void
+  setWebcam: (patch: Partial<WebcamSettings>) => void
+  setAudio: (patch: Partial<AudioSettings>) => void
   setProject: (updater: (prev: ProjectState) => ProjectState) => void
 
   regenerateAutoZoom: () => void

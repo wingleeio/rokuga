@@ -48,6 +48,87 @@ export function pickMimeType(): string {
   return 'video/webm'
 }
 
+export interface AVDevice {
+  deviceId: string
+  label: string
+}
+
+/** Enumerate cameras + microphones. Labels are only populated once the user has
+ * granted camera/mic access at least once; before that we show generic names. */
+export async function listAVDevices(): Promise<{ cameras: AVDevice[]; mics: AVDevice[] }> {
+  let devices: MediaDeviceInfo[] = []
+  try {
+    devices = await navigator.mediaDevices.enumerateDevices()
+  } catch {
+    return { cameras: [], mics: [] }
+  }
+  const cameras = devices
+    .filter((d) => d.kind === 'videoinput')
+    .map((d, i) => ({ deviceId: d.deviceId, label: d.label || `Camera ${i + 1}` }))
+  const mics = devices
+    .filter((d) => d.kind === 'audioinput')
+    .map((d, i) => ({ deviceId: d.deviceId, label: d.label || `Microphone ${i + 1}` }))
+  return { cameras, mics }
+}
+
+/** Open a webcam and/or microphone stream. An id may be null to omit that track,
+ * or the string `'default'` to use the system default device (works before the
+ * user has granted access, when specific device ids aren't yet exposed). Throws
+ * if the OS denies camera/mic permission. */
+export async function getWebcamMicStream(opts: {
+  cameraId?: string | null
+  micId?: string | null
+}): Promise<MediaStream> {
+  const byId = (id: string): { deviceId: { exact: string } } => ({ deviceId: { exact: id } })
+  const constraints: MediaStreamConstraints = {
+    video: opts.cameraId
+      ? { ...(opts.cameraId === 'default' ? {} : byId(opts.cameraId)), width: { ideal: 1280 }, height: { ideal: 720 } }
+      : false,
+    audio: opts.micId
+      ? { ...(opts.micId === 'default' ? {} : byId(opts.micId)), echoCancellation: true, noiseSuppression: true }
+      : false
+  }
+  return navigator.mediaDevices.getUserMedia(constraints)
+}
+
+function pickAVMimeType(hasVideo: boolean): string {
+  const candidates = hasVideo
+    ? ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm']
+    : ['audio/webm;codecs=opus', 'audio/webm']
+  for (const c of candidates) {
+    if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(c)) return c
+  }
+  return hasVideo ? 'video/webm' : 'audio/webm'
+}
+
+/** Record a webcam/mic stream (video and/or audio) to a webm blob, picking a
+ * codec that matches the present tracks. Aligns to `onStart` like recordStream. */
+export function recordAVStream(stream: MediaStream, onStart?: () => void): ActiveRecording {
+  const hasVideo = stream.getVideoTracks().length > 0
+  const mimeType = pickAVMimeType(hasVideo)
+  const options: MediaRecorderOptions = { mimeType, audioBitsPerSecond: 128_000 }
+  if (hasVideo) options.videoBitsPerSecond = 6_000_000
+  const recorder = new MediaRecorder(stream, options)
+  const chunks: Blob[] = []
+  recorder.ondataavailable = (e) => {
+    if (e.data.size > 0) chunks.push(e.data)
+  }
+  if (onStart) recorder.onstart = () => onStart()
+  recorder.start(200)
+
+  return {
+    stream,
+    stop: () =>
+      new Promise<Blob>((resolve) => {
+        recorder.onstop = () => {
+          stream.getTracks().forEach((t) => t.stop())
+          resolve(new Blob(chunks, { type: mimeType }))
+        }
+        recorder.stop()
+      })
+  }
+}
+
 export interface ActiveRecording {
   stop: () => Promise<Blob>
   stream: MediaStream

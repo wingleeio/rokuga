@@ -11,6 +11,7 @@ import ExportPanel from './ExportPanel'
 
 interface Props {
   mediaBlob: Blob
+  cameraBlob: Blob | null
   projectPath?: string
   dirty: boolean
   busy: string | null
@@ -23,6 +24,7 @@ interface Props {
 
 export default function EditView({
   mediaBlob,
+  cameraBlob,
   projectPath,
   dirty,
   busy,
@@ -165,7 +167,13 @@ export default function EditView({
         <Inspector />
       </div>
 
-      {showExport && <ExportPanel mediaBlob={mediaBlob} onClose={() => setShowExport(false)} />}
+      {showExport && (
+        <ExportPanel
+          mediaBlob={mediaBlob}
+          cameraBlob={cameraBlob}
+          onClose={() => setShowExport(false)}
+        />
+      )}
     </div>
   )
 }

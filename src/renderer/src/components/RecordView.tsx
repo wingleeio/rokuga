@@ -1,16 +1,24 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Circle, FolderOpen, RefreshCw, Monitor, AppWindow } from 'lucide-react'
+import { Circle, FolderOpen, RefreshCw, Monitor, AppWindow, Video, Mic } from 'lucide-react'
 import type { CaptureSource } from '@shared/types'
 import type { RecordedClip } from '../App'
 import {
   getCaptureStream,
   getDisplayCaptureStream,
   recordStream,
+  getWebcamMicStream,
+  recordAVStream,
+  listAVDevices,
+  type AVDevice,
   type ActiveRecording
 } from '../lib/capture'
 import { Button } from './ui/button'
 import { ToggleGroup, ToggleGroupItem } from './ui/toggle-group'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select'
 import { cn } from '../lib/cn'
+
+const OFF = 'off'
+const DEFAULT = 'default'
 
 interface Props {
   onRecorded: (clip: RecordedClip) => void
@@ -32,8 +40,22 @@ export default function RecordView({ onRecorded, onOpen, busy }: Props): JSX.Ele
   const [nativeMode, setNativeMode] = useState(false)
   const [captureNote, setCaptureNote] = useState('')
 
+  const [cameras, setCameras] = useState<AVDevice[]>([])
+  const [mics, setMics] = useState<AVDevice[]>([])
+  const [camId, setCamId] = useState<string>(OFF)
+  const [micId, setMicId] = useState<string>(OFF)
+
   const previewRef = useRef<HTMLVideoElement>(null)
+  const webcamPreviewRef = useRef<HTMLVideoElement>(null)
   const recRef = useRef<ActiveRecording | null>(null)
+  const avStreamRef = useRef<MediaStream | null>(null)
+  const avRecRef = useRef<ActiveRecording | null>(null)
+  const avMetaRef = useRef<{
+    hasCamera: boolean
+    hasAudio: boolean
+    cameraWidth: number
+    cameraHeight: number
+  } | null>(null)
   const nativeRef = useRef<{ width: number; height: number } | null>(null)
   const startTimeRef = useRef(0)
   const timerRef = useRef<number | null>(null)
@@ -44,6 +66,9 @@ export default function RecordView({ onRecorded, onOpen, busy }: Props): JSX.Ele
       const list = await window.rokuga.listSources()
       setSources(list)
       setSelected((prev) => prev ?? list.find((s) => s.type === 'screen')?.id ?? list[0]?.id ?? null)
+      const av = await listAVDevices()
+      setCameras(av.cameras)
+      setMics(av.mics)
     } catch (e) {
       setError(String(e))
     } finally {
@@ -55,9 +80,40 @@ export default function RecordView({ onRecorded, onOpen, busy }: Props): JSX.Ele
     refresh()
   }, [refresh])
 
+  // Live webcam preview on the setup screen while a camera is selected (idle).
+  useEffect(() => {
+    if (phase !== 'idle' || camId === OFF) return
+    let stream: MediaStream | null = null
+    let cancelled = false
+    getWebcamMicStream({ cameraId: camId })
+      .then((s) => {
+        if (cancelled) {
+          s.getTracks().forEach((t) => t.stop())
+          return
+        }
+        stream = s
+        // Real device labels become available once access is granted.
+        listAVDevices().then((av) => av.cameras.length && setCameras(av.cameras))
+        if (webcamPreviewRef.current) {
+          webcamPreviewRef.current.srcObject = s
+          webcamPreviewRef.current.play().catch(() => {})
+        }
+      })
+      .catch(() => setCamId(OFF))
+    return () => {
+      cancelled = true
+      stream?.getTracks().forEach((t) => t.stop())
+    }
+  }, [camId, phase])
+
   const startTimer = useCallback((source: CaptureSource) => {
     startTimeRef.current = performance.now()
     window.rokuga.startCursor(source.id, source.display_id)
+    // Start the (pre-warmed) webcam/mic recorder at the same instant as the
+    // cursor track so both align to the screen recording's t=0.
+    if (avStreamRef.current && !avRecRef.current) {
+      avRecRef.current = recordAVStream(avStreamRef.current)
+    }
     timerRef.current = window.setInterval(
       () => setElapsed((performance.now() - startTimeRef.current) / 1000),
       100
@@ -69,6 +125,36 @@ export default function RecordView({ onRecorded, onOpen, busy }: Props): JSX.Ele
     if (!source) return
     setError(null)
     setElapsed(0)
+
+    // Open + pre-warm the webcam/mic so the recorder can start aligned with the
+    // screen at startTimer. A denied/busy device is skipped (screen still records).
+    avStreamRef.current = null
+    avRecRef.current = null
+    avMetaRef.current = null
+    if (camId !== OFF || micId !== OFF) {
+      try {
+        const av = await getWebcamMicStream({
+          cameraId: camId !== OFF ? camId : null,
+          micId: micId !== OFF ? micId : null
+        })
+        avStreamRef.current = av
+        const vt = av.getVideoTracks()[0]
+        const st = vt?.getSettings()
+        avMetaRef.current = {
+          hasCamera: !!vt,
+          hasAudio: av.getAudioTracks().length > 0,
+          cameraWidth: st?.width ?? 1280,
+          cameraHeight: st?.height ?? 720
+        }
+        if (webcamPreviewRef.current && vt) {
+          webcamPreviewRef.current.srcObject = av
+          webcamPreviewRef.current.play().catch(() => {})
+        }
+      } catch {
+        avStreamRef.current = null
+        avMetaRef.current = null
+      }
+    }
 
     const winMatch = /window:(\d+)/.exec(source.id)
     const windowId = winMatch ? parseInt(winMatch[1], 10) : undefined
@@ -124,7 +210,7 @@ export default function RecordView({ onRecorded, onOpen, busy }: Props): JSX.Ele
     }
     recRef.current = recordStream(stream, () => startTimer(source))
     setPhase('recording')
-  }, [sources, selected, fps, startTimer])
+  }, [sources, selected, fps, camId, micId, startTimer])
 
   const startCountdown = useCallback(() => {
     setCount(3)
@@ -148,6 +234,30 @@ export default function RecordView({ onRecorded, onOpen, busy }: Props): JSX.Ele
     const source = sources.find((s) => s.id === selected)
     const name = source?.name ?? 'Recording'
 
+    // Finalize the webcam/mic recorder (shared by both screen-capture paths).
+    let camera: Blob | null = null
+    const avMeta = avMetaRef.current
+    if (avRecRef.current) {
+      try {
+        camera = await avRecRef.current.stop()
+      } catch {
+        camera = null
+      }
+      avRecRef.current = null
+    }
+    avStreamRef.current = null
+    avMetaRef.current = null
+    const av =
+      camera && avMeta
+        ? {
+            camera,
+            hasCamera: avMeta.hasCamera,
+            hasAudio: avMeta.hasAudio,
+            cameraWidth: avMeta.cameraWidth,
+            cameraHeight: avMeta.cameraHeight
+          }
+        : {}
+
     // Native (no-cursor) path: the file was written by ScreenCaptureKit.
     if (nativeRef.current) {
       const dims = nativeRef.current
@@ -156,7 +266,7 @@ export default function RecordView({ onRecorded, onOpen, busy }: Props): JSX.Ele
       setNativeMode(false)
       if (res && res.media) {
         const blob = new Blob([res.media as BlobPart], { type: 'video/mp4' })
-        onRecorded({ blob, width: dims.width, height: dims.height, fps, duration, cursor, sourceName: name })
+        onRecorded({ blob, width: dims.width, height: dims.height, fps, duration, cursor, sourceName: name, ...av })
       } else {
         setError('Recording failed to save. Please try again.')
       }
@@ -179,7 +289,8 @@ export default function RecordView({ onRecorded, onOpen, busy }: Props): JSX.Ele
       fps: Math.round(settings.frameRate ?? fps),
       duration,
       cursor,
-      sourceName: name
+      sourceName: name,
+      ...av
     })
     setPhase('idle')
   }, [sources, selected, fps, onRecorded])
@@ -203,6 +314,15 @@ export default function RecordView({ onRecorded, onOpen, busy }: Props): JSX.Ele
             playsInline
           />
         )}
+        <video
+          ref={webcamPreviewRef}
+          className={cn(
+            'absolute bottom-6 right-6 h-36 w-36 -scale-x-100 rounded-full border-2 border-white/20 object-cover shadow-2xl',
+            camId === OFF && 'hidden'
+          )}
+          muted
+          playsInline
+        />
         {phase === 'countdown' ? (
           <div className="absolute text-[120px] font-semibold tracking-tighter text-foreground">
             {count > 0 ? count : 'GO'}
@@ -229,11 +349,7 @@ export default function RecordView({ onRecorded, onOpen, busy }: Props): JSX.Ele
 
   return (
     <div className="flex h-full flex-col animate-fade-in">
-      <header className="drag flex h-[52px] flex-none items-center justify-between border-b border-border pl-[84px] pr-3">
-        <div className="flex items-center gap-2.5">
-          <span className="h-2 w-2 rounded-full bg-red-500" />
-          <span className="text-sm font-semibold tracking-tight">Rokuga</span>
-        </div>
+      <header className="drag flex h-[52px] flex-none items-center justify-end border-b border-border pl-[84px] pr-3">
         <div className="no-drag flex items-center gap-1">
           <Button variant="ghost" size="sm" onClick={onOpen} disabled={!!busy}>
             <FolderOpen /> Open
@@ -266,33 +382,83 @@ export default function RecordView({ onRecorded, onOpen, busy }: Props): JSX.Ele
         )}
       </div>
 
-      <footer className="flex flex-none items-center justify-between gap-4 border-t border-border bg-card/40 px-7 py-3">
-        <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
-          {selectedIsWindow
-            ? 'Keep the window still while recording — cursor & zoom lock to its start position.'
-            : ''}
-        </span>
-        <div className="flex items-center gap-2.5">
-          <span className="text-xs text-muted-foreground">Frame rate</span>
-          <ToggleGroup
-            type="single"
-            value={String(fps)}
-            onValueChange={(v) => v && setFps(parseInt(v, 10))}
-            className="w-auto"
-          >
-            <ToggleGroupItem value="30" className="px-3">
-              30
-            </ToggleGroupItem>
-            <ToggleGroupItem value="60" className="px-3">
-              60
-            </ToggleGroupItem>
-          </ToggleGroup>
+      <footer className="flex flex-none flex-col gap-3 border-t border-border bg-card/40 px-7 py-3">
+        {selectedIsWindow && (
+          <span className="truncate text-xs text-muted-foreground">
+            Keep the window still while recording — cursor &amp; zoom lock to its start position.
+          </span>
+        )}
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-2">
+            <DeviceSelect icon={Video} value={camId} onChange={setCamId} devices={cameras} offLabel="No camera" onLabel="Camera" />
+            <DeviceSelect icon={Mic} value={micId} onChange={setMicId} devices={mics} offLabel="No mic" onLabel="Microphone" />
+          </div>
+          <div className="flex items-center gap-2.5">
+            <span className="text-xs text-muted-foreground">Frame rate</span>
+            <ToggleGroup
+              type="single"
+              value={String(fps)}
+              onValueChange={(v) => v && setFps(parseInt(v, 10))}
+              className="w-auto"
+            >
+              <ToggleGroupItem value="30" className="px-3">
+                30
+              </ToggleGroupItem>
+              <ToggleGroupItem value="60" className="px-3">
+                60
+              </ToggleGroupItem>
+            </ToggleGroup>
+            <Button size="lg" onClick={startCountdown} disabled={!selected}>
+              <Circle className="fill-red-500 text-red-500" /> Start Recording
+            </Button>
+          </div>
         </div>
-        <Button size="lg" onClick={startCountdown} disabled={!selected}>
-          <Circle className="fill-red-500 text-red-500" /> Start Recording
-        </Button>
       </footer>
     </div>
+  )
+}
+
+function DeviceSelect({
+  icon: Icon,
+  value,
+  onChange,
+  devices,
+  offLabel,
+  onLabel
+}: {
+  icon: typeof Video
+  value: string
+  onChange: (v: string) => void
+  devices: AVDevice[]
+  offLabel: string
+  onLabel: string
+}): JSX.Element {
+  // Hide synthetic ids; our own "Default" option covers the pre-permission case.
+  const named = devices.filter(
+    (d) => d.deviceId && d.deviceId !== 'default' && d.deviceId !== 'communications'
+  )
+  return (
+    <Select value={value} onValueChange={onChange}>
+      <SelectTrigger className="h-9 w-[178px]">
+        <span className="flex min-w-0 items-center gap-2">
+          <Icon
+            className={cn('h-4 w-4 flex-none', value === OFF ? 'text-muted-foreground' : 'text-foreground')}
+          />
+          <span className="truncate">
+            <SelectValue />
+          </span>
+        </span>
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value={OFF}>{offLabel}</SelectItem>
+        <SelectItem value={DEFAULT}>{onLabel}</SelectItem>
+        {named.map((d) => (
+          <SelectItem key={d.deviceId} value={d.deviceId}>
+            {d.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   )
 }
 

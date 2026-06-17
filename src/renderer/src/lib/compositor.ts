@@ -43,7 +43,8 @@ export class Compositor {
 
   constructor(
     private canvas: HTMLCanvasElement,
-    private video: HTMLVideoElement
+    private video: HTMLVideoElement,
+    private camVideo: HTMLVideoElement | null = null
   ) {
     this.ctx = canvas.getContext('2d', { alpha: false })!
     this.scene = document.createElement('canvas')
@@ -190,6 +191,69 @@ export class Compositor {
     ctx.imageSmoothingEnabled = true
     ctx.imageSmoothingQuality = 'high'
     ctx.drawImage(this.scene, cropX, cropY, cropW, cropH, 0, 0, outW, outH)
+
+    // The webcam bubble sits in output space (fixed) so it does NOT move or
+    // scale with the zoom — exactly like Screen Studio's camera overlay.
+    this.drawWebcam(project, outW, outH)
+  }
+
+  /** Draw the webcam overlay bubble at its configured position/size/style. */
+  private drawWebcam(project: ProjectState, outW: number, outH: number): void {
+    const wc = project.webcam
+    const cam = this.camVideo
+    if (!wc?.enabled || !cam || cam.readyState < 2 || !cam.videoWidth) return
+
+    const ctx = this.ctx
+    const vw = cam.videoWidth
+    const vh = cam.videoHeight
+    const aspect = vw / vh
+    const bh = clamp(wc.size, 0.05, 0.9) * outH
+    const bw = wc.shape === 'circle' ? bh : bh * aspect
+    const x = clamp(wc.x, 0, 1) * outW - bw / 2
+    const y = clamp(wc.y, 0, 1) * outH - bh / 2
+    const radius =
+      wc.shape === 'circle'
+        ? Math.min(bw, bh) / 2
+        : wc.shape === 'rounded'
+          ? Math.min(wc.cornerRadius, Math.min(bw, bh) / 2)
+          : 0
+
+    // Drop shadow behind the bubble.
+    if (wc.shadow > 0) {
+      ctx.save()
+      ctx.shadowColor = `rgba(0,0,0,${wc.shadow})`
+      ctx.shadowBlur = bh * 0.14
+      ctx.shadowOffsetY = bh * 0.05
+      ctx.fillStyle = '#000'
+      this.roundRectPath(ctx, x, y, bw, bh, radius)
+      ctx.fill()
+      ctx.restore()
+    }
+
+    // Clip to the bubble, then draw the webcam frame object-fit:cover.
+    ctx.save()
+    this.roundRectPath(ctx, x, y, bw, bh, radius)
+    ctx.clip()
+    if (wc.mirror) {
+      ctx.translate(x + bw, y)
+      ctx.scale(-1, 1)
+      ctx.translate(-x, -y)
+    }
+    const scale = Math.max(bw / vw, bh / vh)
+    const dw = vw * scale
+    const dh = vh * scale
+    ctx.drawImage(cam, x + (bw - dw) / 2, y + (bh - dh) / 2, dw, dh)
+    ctx.restore()
+
+    // Border.
+    if (wc.borderWidth > 0) {
+      ctx.save()
+      ctx.lineWidth = wc.borderWidth
+      ctx.strokeStyle = wc.borderColor
+      this.roundRectPath(ctx, x, y, bw, bh, radius)
+      ctx.stroke()
+      ctx.restore()
+    }
   }
 
   /** Draw the full 1× composition (background + framed window + cursor) into the

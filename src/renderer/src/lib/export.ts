@@ -1,7 +1,19 @@
-import type { ExportOptions, ProjectState } from '@shared/types'
+import type { ExportAudio, ExportOptions, ProjectState } from '@shared/types'
 import { Compositor } from './compositor'
 import { keptDuration, timelineToSource } from './project'
 import { prepareVideo } from './video'
+
+function hiddenVideo(blob: Blob): HTMLVideoElement {
+  const v = document.createElement('video')
+  v.muted = true
+  v.playsInline = true
+  // Attached (but invisible) so Chromium reliably decodes frames on seek.
+  v.style.cssText =
+    'position:absolute;left:-9999px;top:0;width:2px;height:2px;opacity:0;pointer-events:none'
+  v.src = URL.createObjectURL(blob)
+  document.body.appendChild(v)
+  return v
+}
 
 /**
  * Export by deterministic frame-stepping: for each output frame we seek the
@@ -13,27 +25,23 @@ import { prepareVideo } from './video'
 export async function exportProject(
   project: ProjectState,
   mediaBlob: Blob,
+  cameraBlob: Blob | null,
   options: ExportOptions,
   onProgress: (ratio: number) => void
 ): Promise<string | null> {
-  const video = document.createElement('video')
-  video.muted = true
-  video.playsInline = true
-  // Attached (but invisible) so Chromium reliably decodes frames on seek.
-  video.style.cssText =
-    'position:absolute;left:-9999px;top:0;width:2px;height:2px;opacity:0;pointer-events:none'
-  video.src = URL.createObjectURL(mediaBlob)
-  document.body.appendChild(video)
+  const video = hiddenVideo(mediaBlob)
+  const camVideo = cameraBlob ? hiddenVideo(cameraBlob) : null
 
   try {
     await prepareVideo(video, project.recording.duration)
+    if (camVideo) await prepareVideo(camVideo, project.recording.duration).catch(() => {})
 
     const canvas = document.createElement('canvas')
     const exportProj: ProjectState = {
       ...project,
       canvas: { ...project.canvas, outputHeight: options.height }
     }
-    const compositor = new Compositor(canvas, video)
+    const compositor = new Compositor(canvas, video, camVideo)
     const { w, h } = compositor.outputSize(exportProj)
     canvas.width = w
     canvas.height = h
@@ -44,7 +52,25 @@ export async function exportProject(
     const fps = options.fps
     const totalFrames = Math.max(1, Math.round((total / speed) * fps))
 
-    const begin = await window.rokuga.exportBegin(options, project.name)
+    // Mux the recorded mic audio (GIF is silent). The webcam *video* is already
+    // composited into the frames; only the audio needs to come from the file.
+    const wantAudio =
+      options.format !== 'gif' &&
+      project.audio.enabled &&
+      !!project.recording.hasAudio &&
+      !!project.recording.cameraPath
+    const audio: ExportAudio | null = wantAudio
+      ? {
+          path: project.recording.cameraPath as string,
+          segments: project.timeline.segments
+            .filter((s) => s.end > s.start)
+            .map((s) => ({ start: s.start, end: s.end })),
+          speed,
+          volume: Math.min(1.5, Math.max(0, project.audio.volume))
+        }
+      : null
+
+    const begin = await window.rokuga.exportBegin(options, project.name, audio)
     if (!begin.ok) return null
 
     try {
@@ -54,6 +80,7 @@ export async function exportProject(
         const tlTime = Math.min(total - 1e-4, Math.max(0, (i / fps) * speed))
         const srcTime = timelineToSource(project.timeline, tlTime)
         await seekTo(video, srcTime)
+        if (camVideo) await seekTo(camVideo, srcTime)
         compositor.render(exportProj, srcTime, true, dt)
         await window.rokuga.exportFrame(await canvasToJpeg(canvas))
         onProgress(Math.min(0.99, (i + 1) / totalFrames))
@@ -66,6 +93,10 @@ export async function exportProject(
   } finally {
     URL.revokeObjectURL(video.src)
     video.remove()
+    if (camVideo) {
+      URL.revokeObjectURL(camVideo.src)
+      camVideo.remove()
+    }
   }
 }
 

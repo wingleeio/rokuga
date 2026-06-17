@@ -92,6 +92,14 @@ export function registerRecorderHandlers(
       const stamp = new Date().toISOString().replace(/[:.]/g, '-')
       const mediaPath = join(workingDir(), `rec-${stamp}.webm`)
       await fs.writeFile(mediaPath, Buffer.from(args.buffer))
+
+      // Persist the webcam/mic track (if any) alongside the screen recording.
+      let cameraPath: string | undefined
+      if (args.camera && args.camera.byteLength > 0) {
+        cameraPath = join(workingDir(), `cam-${stamp}.webm`)
+        await fs.writeFile(cameraPath, Buffer.from(args.camera))
+      }
+
       return {
         width: args.width,
         height: args.height,
@@ -100,7 +108,12 @@ export function registerRecorderHandlers(
         mediaPath,
         cursor: args.cursor,
         createdAt: Date.now(),
-        sourceName: args.sourceName
+        sourceName: args.sourceName,
+        cameraPath,
+        hasCamera: !!cameraPath && !!args.hasCamera,
+        hasAudio: !!cameraPath && !!args.hasAudio,
+        cameraWidth: args.cameraWidth,
+        cameraHeight: args.cameraHeight
       }
     }
   )

@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type {
   CaptureSource,
   CursorSample,
+  ExportAudio,
   ExportOptions,
   ProjectState,
   RecordingMeta,
@@ -36,11 +37,18 @@ const api = {
     ipcRenderer.invoke('project:save', state, existingPath),
   openProject: (
     path?: string
-  ): Promise<{ state: ProjectState; path: string; media: Uint8Array } | null> =>
-    ipcRenderer.invoke('project:open', path),
+  ): Promise<{
+    state: ProjectState
+    path: string
+    media: Uint8Array
+    camera: Uint8Array | null
+  } | null> => ipcRenderer.invoke('project:open', path),
 
-  exportBegin: (options: ExportOptions, projectName: string): Promise<{ ok: boolean }> =>
-    ipcRenderer.invoke('export:begin', options, projectName),
+  exportBegin: (
+    options: ExportOptions,
+    projectName: string,
+    audio?: ExportAudio | null
+  ): Promise<{ ok: boolean }> => ipcRenderer.invoke('export:begin', options, projectName, audio),
   exportFrame: (buffer: ArrayBuffer): Promise<boolean> =>
     ipcRenderer.invoke('export:frame', buffer),
   exportEnd: (): Promise<string | null> => ipcRenderer.invoke('export:end'),

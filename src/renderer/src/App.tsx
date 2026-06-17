@@ -17,12 +17,19 @@ export interface RecordedClip {
   fps: number
   cursor: RecordingMeta['cursor']
   sourceName: string
+  camera?: Blob | null
+  hasCamera?: boolean
+  hasAudio?: boolean
+  cameraWidth?: number
+  cameraHeight?: number
 }
 
 export default function App(): JSX.Element {
   const [project, setProjectState] = useState<ProjectState | null>(null)
   const [mediaBlob, setMediaBlob] = useState<Blob | null>(null)
   const [mediaURL, setMediaURL] = useState<string>('')
+  const [cameraBlob, setCameraBlob] = useState<Blob | null>(null)
+  const [cameraURL, setCameraURL] = useState<string>('')
   const [projectPath, setProjectPath] = useState<string | undefined>(undefined)
   const [playhead, setPlayhead] = useState(0)
   const [playing, setPlaying] = useState(false)
@@ -31,6 +38,7 @@ export default function App(): JSX.Element {
   const [dirty, setDirty] = useState(false)
   const [selectedZoom, setSelectedZoom] = useState<string | null>(null)
   const urlRef = useRef<string>('')
+  const camUrlRef = useRef<string>('')
 
   const setMedia = useCallback((blob: Blob) => {
     if (urlRef.current) URL.revokeObjectURL(urlRef.current)
@@ -40,7 +48,27 @@ export default function App(): JSX.Element {
     setMediaURL(url)
   }, [])
 
-  useEffect(() => () => void (urlRef.current && URL.revokeObjectURL(urlRef.current)), [])
+  const setCameraMedia = useCallback((blob: Blob | null) => {
+    if (camUrlRef.current) URL.revokeObjectURL(camUrlRef.current)
+    if (blob) {
+      const url = URL.createObjectURL(blob)
+      camUrlRef.current = url
+      setCameraBlob(blob)
+      setCameraURL(url)
+    } else {
+      camUrlRef.current = ''
+      setCameraBlob(null)
+      setCameraURL('')
+    }
+  }, [])
+
+  useEffect(
+    () => () => {
+      if (urlRef.current) URL.revokeObjectURL(urlRef.current)
+      if (camUrlRef.current) URL.revokeObjectURL(camUrlRef.current)
+    },
+    []
+  )
 
   // Notify-only update check: surface a toast when a newer release is out.
   useEffect(() => {
@@ -58,6 +86,7 @@ export default function App(): JSX.Element {
       setBusy('Saving recording…')
       try {
         const buffer = await clip.blob.arrayBuffer()
+        const cameraBuffer = clip.camera ? await clip.camera.arrayBuffer() : null
         const meta = await window.rokuga.saveRecording({
           buffer,
           cursor: clip.cursor,
@@ -65,13 +94,19 @@ export default function App(): JSX.Element {
           height: clip.height,
           fps: clip.fps,
           duration: clip.duration,
-          sourceName: clip.sourceName
+          sourceName: clip.sourceName,
+          camera: cameraBuffer,
+          hasCamera: clip.hasCamera,
+          hasAudio: clip.hasAudio,
+          cameraWidth: clip.cameraWidth,
+          cameraHeight: clip.cameraHeight
         })
         const proj = createDefaultProject(meta)
         if (proj.camera.auto && meta.cursor.length > 3) {
           proj.camera.keyframes = generateAutoZoom(meta.cursor, meta.duration, proj.camera)
         }
         setMedia(clip.blob)
+        setCameraMedia(clip.camera ?? null)
         setProjectState(proj)
         setProjectPath(undefined)
         setDirty(false)
@@ -83,7 +118,7 @@ export default function App(): JSX.Element {
         setBusy(null)
       }
     },
-    [setMedia]
+    [setMedia, setCameraMedia]
   )
 
   const openProject = useCallback(async () => {
@@ -93,6 +128,7 @@ export default function App(): JSX.Element {
       if (!res) return
       const blob = new Blob([res.media as BlobPart], { type: 'video/webm' })
       setMedia(blob)
+      setCameraMedia(res.camera ? new Blob([res.camera as BlobPart], { type: 'video/webm' }) : null)
       setProjectState(normalizeProject(res.state))
       setProjectPath(res.path)
       setDirty(false)
@@ -103,7 +139,7 @@ export default function App(): JSX.Element {
     } finally {
       setBusy(null)
     }
-  }, [setMedia])
+  }, [setMedia, setCameraMedia])
 
   const saveProject = useCallback(
     async (saveAs = false) => {
@@ -131,10 +167,11 @@ export default function App(): JSX.Element {
   const newRecording = useCallback(() => {
     setProjectState(null)
     setMediaBlob(null)
+    setCameraMedia(null)
     setProjectPath(undefined)
     setPlaying(false)
     setPlayhead(0)
-  }, [])
+  }, [setCameraMedia])
 
   const ctx = useMemo<EditorContextValue | null>(() => {
     if (!project) return null
@@ -145,6 +182,7 @@ export default function App(): JSX.Element {
     return {
       project,
       mediaURL,
+      cameraURL,
       playhead,
       setPlayhead,
       playing,
@@ -159,6 +197,8 @@ export default function App(): JSX.Element {
       setTimeline: (patch) => update((p) => ({ ...p, timeline: { ...p.timeline, ...patch } })),
       setCanvas: (patch) => update((p) => ({ ...p, canvas: { ...p.canvas, ...patch } })),
       setCursor: (patch) => update((p) => ({ ...p, cursor: { ...p.cursor, ...patch } })),
+      setWebcam: (patch) => update((p) => ({ ...p, webcam: { ...p.webcam, ...patch } })),
+      setAudio: (patch) => update((p) => ({ ...p, audio: { ...p.audio, ...patch } })),
       regenerateAutoZoom: () =>
         update((p) => ({
           ...p,
@@ -193,7 +233,7 @@ export default function App(): JSX.Element {
           camera: { ...p.camera, keyframes: p.camera.keyframes.filter((k) => k.id !== id) }
         }))
     }
-  }, [project, mediaURL, playhead, playing, loop, selectedZoom])
+  }, [project, mediaURL, cameraURL, playhead, playing, loop, selectedZoom])
 
   return (
     <TooltipProvider delayDuration={350} skipDelayDuration={300}>
@@ -203,6 +243,7 @@ export default function App(): JSX.Element {
         <EditorContext.Provider value={ctx}>
           <EditView
             mediaBlob={mediaBlob}
+            cameraBlob={cameraBlob}
             projectPath={projectPath}
             dirty={dirty}
             busy={busy}

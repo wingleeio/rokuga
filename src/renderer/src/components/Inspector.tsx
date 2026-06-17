@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import { X } from 'lucide-react'
-import type { AspectPreset, BackgroundKind } from '@shared/types'
+import type { AspectPreset, BackgroundKind, WebcamShape } from '@shared/types'
 import { useEditor } from '../context'
 import {
   GRADIENT_PRESETS,
@@ -15,11 +15,12 @@ import { Button } from './ui/button'
 import { Field, SliderRow, SwitchRow } from './controls'
 import { cn } from '../lib/cn'
 
-type Tab = 'background' | 'frame' | 'camera' | 'cursor' | 'canvas'
+type Tab = 'background' | 'frame' | 'camera' | 'webcam' | 'cursor' | 'canvas'
 const TABS: { value: Tab; label: string }[] = [
   { value: 'background', label: 'BG' },
   { value: 'frame', label: 'Frame' },
   { value: 'camera', label: 'Zoom' },
+  { value: 'webcam', label: 'Cam' },
   { value: 'cursor', label: 'Cursor' },
   { value: 'canvas', label: 'Canvas' }
 ]
@@ -32,9 +33,9 @@ export default function Inspector(): JSX.Element {
       onValueChange={(v) => setTab(v as Tab)}
       className="flex w-[320px] flex-none flex-col border-l border-border bg-card/30"
     >
-      <TabsList className="grid w-full grid-cols-5 gap-1 rounded-none border-b border-border bg-transparent p-2">
+      <TabsList className="grid w-full grid-cols-6 gap-1 rounded-none border-b border-border bg-transparent p-2">
         {TABS.map((t) => (
-          <TabsTrigger key={t.value} value={t.value}>
+          <TabsTrigger key={t.value} value={t.value} className="px-1.5">
             {t.label}
           </TabsTrigger>
         ))}
@@ -43,6 +44,7 @@ export default function Inspector(): JSX.Element {
         {tab === 'background' && <BackgroundPanel />}
         {tab === 'frame' && <FramePanel />}
         {tab === 'camera' && <CameraPanel />}
+        {tab === 'webcam' && <WebcamPanel />}
         {tab === 'cursor' && <CursorPanel />}
         {tab === 'canvas' && <CanvasPanel />}
       </div>
@@ -346,6 +348,125 @@ function CursorPanel(): JSX.Element {
         {hasCursor ? '.' : ', but no cursor path was captured for this clip.'} It follows the zoom
         and stays crisp at any size.
       </p>
+    </div>
+  )
+}
+
+function PositionGrid({
+  x,
+  y,
+  onPick
+}: {
+  x: number
+  y: number
+  onPick: (x: number, y: number) => void
+}): JSX.Element {
+  const cells = [0.16, 0.5, 0.84]
+  const near = (a: number, b: number): boolean => Math.abs(a - b) < 0.09
+  return (
+    <div className="grid grid-cols-3 gap-1.5">
+      {cells.map((cy) =>
+        cells.map((cx) => {
+          const active = near(x, cx) && near(y, cy)
+          return (
+            <button
+              key={`${cx}-${cy}`}
+              onClick={() => onPick(cx, cy)}
+              className={cn(
+                'grid h-9 place-items-center rounded-md border transition-colors',
+                active
+                  ? 'border-foreground/60 bg-secondary'
+                  : 'border-border hover:border-foreground/30'
+              )}
+            >
+              <span
+                className={cn(
+                  'h-2.5 w-2.5 rounded-full',
+                  active ? 'bg-foreground' : 'bg-muted-foreground/50'
+                )}
+              />
+            </button>
+          )
+        })
+      )}
+    </div>
+  )
+}
+
+function WebcamPanel(): JSX.Element {
+  const { project, setWebcam, setAudio } = useEditor()
+  const wc = project.webcam
+  const audio = project.audio
+  const hasCamera = !!project.recording.hasCamera
+  const hasAudio = !!project.recording.hasAudio
+
+  if (!hasCamera && !hasAudio) {
+    return (
+      <p className="text-xs leading-relaxed text-muted-foreground">
+        No camera or microphone was recorded with this clip. Turn on{' '}
+        <b className="text-foreground">Camera</b> or <b className="text-foreground">Microphone</b>{' '}
+        on the record screen before recording to add a webcam overlay or voiceover.
+      </p>
+    )
+  }
+
+  return (
+    <div className="flex flex-col gap-5">
+      {hasCamera && (
+        <>
+          <SwitchRow
+            label="Show webcam"
+            checked={wc.enabled}
+            onChange={(enabled) => setWebcam({ enabled })}
+          />
+          {wc.enabled && (
+            <>
+              <Field label="Position">
+                <PositionGrid x={wc.x} y={wc.y} onPick={(x, y) => setWebcam({ x, y })} />
+              </Field>
+              <SliderRow label="Horizontal" min={0} max={1} step={0.01} value={wc.x} onChange={(x) => setWebcam({ x })} format={(v) => `${Math.round(v * 100)}%`} />
+              <SliderRow label="Vertical" min={0} max={1} step={0.01} value={wc.y} onChange={(y) => setWebcam({ y })} format={(v) => `${Math.round(v * 100)}%`} />
+              <SliderRow label="Size" min={0.1} max={0.6} step={0.01} value={wc.size} onChange={(size) => setWebcam({ size })} format={(v) => `${Math.round(v * 100)}%`} />
+              <Field label="Shape">
+                <ToggleGroup
+                  type="single"
+                  value={wc.shape}
+                  onValueChange={(v) => v && setWebcam({ shape: v as WebcamShape })}
+                >
+                  <ToggleGroupItem value="circle">Circle</ToggleGroupItem>
+                  <ToggleGroupItem value="rounded">Rounded</ToggleGroupItem>
+                  <ToggleGroupItem value="square">Square</ToggleGroupItem>
+                </ToggleGroup>
+              </Field>
+              {wc.shape === 'rounded' && (
+                <SliderRow label="Corner radius" min={0} max={80} value={wc.cornerRadius} onChange={(cornerRadius) => setWebcam({ cornerRadius })} format={(v) => `${v}px`} />
+              )}
+              <SliderRow label="Shadow" min={0} max={1} step={0.01} value={wc.shadow} onChange={(shadow) => setWebcam({ shadow })} format={(v) => `${Math.round(v * 100)}%`} />
+              <SliderRow label="Border" min={0} max={16} value={wc.borderWidth} onChange={(borderWidth) => setWebcam({ borderWidth })} format={(v) => `${v}px`} />
+              {wc.borderWidth > 0 && (
+                <ColorInput value={wc.borderColor} onChange={(v) => setWebcam({ borderColor: v })} />
+              )}
+              <SwitchRow label="Mirror (selfie view)" checked={wc.mirror} onChange={(mirror) => setWebcam({ mirror })} />
+            </>
+          )}
+        </>
+      )}
+
+      {hasAudio && (
+        <div className={cn('flex flex-col gap-5', hasCamera && 'border-t border-border pt-5')}>
+          <div className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+            Microphone
+          </div>
+          <SwitchRow
+            label="Include microphone audio"
+            checked={audio.enabled}
+            onChange={(enabled) => setAudio({ enabled })}
+          />
+          {audio.enabled && (
+            <SliderRow label="Volume" min={0} max={1.5} step={0.05} value={audio.volume} onChange={(volume) => setAudio({ volume })} format={(v) => `${Math.round(v * 100)}%`} />
+          )}
+        </div>
+      )}
     </div>
   )
 }

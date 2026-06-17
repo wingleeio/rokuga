@@ -5,6 +5,7 @@ import AdmZip from 'adm-zip'
 import type { ProjectState } from '../shared/types'
 
 const MEDIA_ENTRY = 'media.webm'
+const CAMERA_ENTRY = 'camera.webm'
 const PROJECT_ENTRY = 'project.json'
 
 function projectsDir(): string {
@@ -38,15 +39,30 @@ export function registerProjectHandlers(
 
       const mediaBytes = await fs.readFile(state.recording.mediaPath)
 
-      // Store the project with a relative media reference so the file is portable.
+      // Include the webcam/mic track if present.
+      let cameraBytes: Buffer | null = null
+      if (state.recording.cameraPath) {
+        try {
+          cameraBytes = await fs.readFile(state.recording.cameraPath)
+        } catch {
+          cameraBytes = null
+        }
+      }
+
+      // Store the project with relative media references so the file is portable.
       const portable: ProjectState = {
         ...state,
-        recording: { ...state.recording, mediaPath: MEDIA_ENTRY }
+        recording: {
+          ...state.recording,
+          mediaPath: MEDIA_ENTRY,
+          cameraPath: cameraBytes ? CAMERA_ENTRY : undefined
+        }
       }
 
       const zip = new AdmZip()
       zip.addFile(PROJECT_ENTRY, Buffer.from(JSON.stringify(portable, null, 2), 'utf-8'))
       zip.addFile(MEDIA_ENTRY, mediaBytes)
+      if (cameraBytes) zip.addFile(CAMERA_ENTRY, cameraBytes)
       await fs.writeFile(target, zip.toBuffer())
       return target
     }
@@ -57,7 +73,12 @@ export function registerProjectHandlers(
     async (
       _e,
       existingPath?: string
-    ): Promise<{ state: ProjectState; path: string; media: Buffer } | null> => {
+    ): Promise<{
+      state: ProjectState
+      path: string
+      media: Buffer
+      camera: Buffer | null
+    } | null> => {
       const win = getWindow()
       let target = existingPath
       if (!target) {
@@ -90,7 +111,19 @@ export function registerProjectHandlers(
       await fs.writeFile(extractedPath, mediaData)
       state.recording.mediaPath = extractedPath
 
-      return { state, path: target, media: mediaData }
+      // Extract the webcam/mic track too, if the project has one.
+      let cameraData: Buffer | null = null
+      const cameraEntry = zip.getEntry(CAMERA_ENTRY)
+      if (cameraEntry) {
+        const camPath = extractedPath.replace(/\.webm$/i, '-camera.webm')
+        cameraData = cameraEntry.getData()
+        await fs.writeFile(camPath, cameraData)
+        state.recording.cameraPath = camPath
+      } else {
+        state.recording.cameraPath = undefined
+      }
+
+      return { state, path: target, media: mediaData, camera: cameraData }
     }
   )
 }

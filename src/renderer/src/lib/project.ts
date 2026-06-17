@@ -1,11 +1,13 @@
 import type {
+  AudioSettings,
   CameraSettings,
   CanvasSettings,
   CursorSettings,
   FrameStyle,
   ProjectState,
   RecordingMeta,
-  TimelineSettings
+  TimelineSettings,
+  WebcamSettings
 } from '@shared/types'
 import { DEFAULT_BACKGROUND } from './presets'
 
@@ -43,6 +45,24 @@ export const DEFAULT_CURSOR: CursorSettings = {
   smoothing: 0.35
 }
 
+export const DEFAULT_WEBCAM: WebcamSettings = {
+  enabled: false,
+  x: 0.84,
+  y: 0.84,
+  size: 0.26,
+  shape: 'circle',
+  cornerRadius: 28,
+  borderWidth: 0,
+  borderColor: '#ffffff',
+  shadow: 0.5,
+  mirror: true
+}
+
+export const DEFAULT_AUDIO: AudioSettings = {
+  enabled: false,
+  volume: 1
+}
+
 export function createDefaultProject(recording: RecordingMeta): ProjectState {
   const timeline: TimelineSettings = {
     segments: [{ id: uid(), start: 0, end: recording.duration }],
@@ -57,7 +77,9 @@ export function createDefaultProject(recording: RecordingMeta): ProjectState {
     camera: { ...DEFAULT_CAMERA, keyframes: [] },
     timeline,
     canvas: { ...DEFAULT_CANVAS },
-    cursor: { ...DEFAULT_CURSOR }
+    cursor: { ...DEFAULT_CURSOR },
+    webcam: { ...DEFAULT_WEBCAM, enabled: !!recording.hasCamera },
+    audio: { ...DEFAULT_AUDIO, enabled: !!recording.hasAudio }
   }
 }
 
@@ -66,7 +88,9 @@ export function normalizeProject(state: ProjectState): ProjectState {
   return {
     ...state,
     cursor: { ...DEFAULT_CURSOR, ...(state.cursor ?? {}) },
-    camera: { ...DEFAULT_CAMERA, ...state.camera, keyframes: state.camera?.keyframes ?? [] }
+    camera: { ...DEFAULT_CAMERA, ...state.camera, keyframes: state.camera?.keyframes ?? [] },
+    webcam: { ...DEFAULT_WEBCAM, ...(state.webcam ?? {}) },
+    audio: { ...DEFAULT_AUDIO, ...(state.audio ?? {}) }
   }
 }
 

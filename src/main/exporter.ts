@@ -2,7 +2,7 @@ import { dialog, type IpcMain, type BrowserWindow } from 'electron'
 import { PassThrough } from 'stream'
 import ffmpeg from 'fluent-ffmpeg'
 import ffmpegStatic from 'ffmpeg-static'
-import type { ExportOptions } from '../shared/types'
+import type { ExportAudio, ExportOptions } from '../shared/types'
 
 // ffmpeg-static ships the binary inside the asar in production; point at the
 // unpacked copy so the child process can actually exec it.
@@ -22,6 +22,76 @@ const EXT: Record<ExportOptions['format'], string> = {
 let input: PassThrough | null = null
 let outPath: string | null = null
 let donePromise: Promise<void> | null = null
+
+// ffmpeg's atempo filter only spans 0.5..2.0 per instance; chain instances to
+// cover the project's full speed range while preserving pitch.
+function atempoChain(speed: number): string {
+  let s = Math.min(4, Math.max(0.25, speed))
+  const factors: number[] = []
+  while (s > 2.0) {
+    factors.push(2.0)
+    s /= 2.0
+  }
+  while (s < 0.5) {
+    factors.push(0.5)
+    s /= 0.5
+  }
+  factors.push(s)
+  return factors.map((f) => `atempo=${f.toFixed(5)}`).join(',')
+}
+
+// Build the [1:a] audio graph: trim each kept segment, concat them (so the audio
+// follows the same cuts as the video), then apply speed + gain, and pad with
+// silence so `-shortest` can clamp to the authoritative video length.
+function audioFilterParts(audio: ExportAudio): string[] {
+  const parts: string[] = []
+  const segs = audio.segments.filter((s) => s.end > s.start)
+  if (segs.length) {
+    const labels: string[] = []
+    segs.forEach((s, i) => {
+      parts.push(
+        `[1:a]atrim=start=${s.start.toFixed(4)}:end=${s.end.toFixed(4)},asetpts=PTS-STARTPTS[a${i}]`
+      )
+      labels.push(`[a${i}]`)
+    })
+    parts.push(`${labels.join('')}concat=n=${segs.length}:v=0:a=1[ac]`)
+  } else {
+    parts.push('[1:a]anull[ac]')
+  }
+  // No apad here: the trimmed+concat+tempo audio is already ~the video length,
+  // and apad produces an *infinite* stream that deadlocks with `-shortest`.
+  parts.push(`[ac]${atempoChain(audio.speed)},volume=${audio.volume.toFixed(3)}[outa]`)
+  return parts
+}
+
+// Output for a video+audio mux: video scaled in the filtergraph (so it composes
+// with the audio graph), audio mapped from [outa].
+function applyWithAudio(
+  cmd: ffmpeg.FfmpegCommand,
+  options: ExportOptions,
+  audio: ExportAudio
+): void {
+  const quality = Math.min(100, Math.max(0, options.quality))
+  const scaleV = `[0:v]scale=-2:${options.height}:flags=lanczos[outv]`
+  cmd.complexFilter([scaleV, ...audioFilterParts(audio)])
+
+  if (options.format === 'webm') {
+    const crf = Math.round(36 - (quality / 100) * 22)
+    cmd.outputOptions([
+      '-map', '[outv]', '-map', '[outa]',
+      '-c:v', 'libvpx-vp9', `-crf`, `${crf}`, '-b:v', '0', `-r`, `${options.fps}`,
+      '-c:a', 'libopus', '-b:a', '160k'
+    ])
+  } else {
+    const crf = Math.round(28 - (quality / 100) * 16)
+    cmd.outputOptions([
+      '-map', '[outv]', '-map', '[outa]',
+      '-c:v', 'libx264', `-crf`, `${crf}`, '-preset', 'medium', '-pix_fmt', 'yuv420p',
+      '-movflags', '+faststart', `-r`, `${options.fps}`, '-fps_mode', 'cfr',
+      '-c:a', 'aac', '-b:a', '192k'
+    ])
+  }
+}
 
 function applyOutput(cmd: ffmpeg.FfmpegCommand, options: ExportOptions): void {
   const quality = Math.min(100, Math.max(0, options.quality))
@@ -66,7 +136,12 @@ export function registerExportHandlers(
 ): void {
   ipcMain.handle(
     'export:begin',
-    async (_e, options: ExportOptions, projectName: string): Promise<{ ok: boolean }> => {
+    async (
+      _e,
+      options: ExportOptions,
+      projectName: string,
+      audio?: ExportAudio | null
+    ): Promise<{ ok: boolean }> => {
       const win = getWindow()
       if (!win) return { ok: false }
       const ext = EXT[options.format]
@@ -80,7 +155,13 @@ export function registerExportHandlers(
 
       input = new PassThrough({ highWaterMark: 1 << 24 })
       const cmd = ffmpeg(input).inputFormat('image2pipe').inputFPS(options.fps)
-      applyOutput(cmd, options)
+      // GIF is always silent; otherwise mux the mic audio when present.
+      if (audio && options.format !== 'gif') {
+        cmd.input(audio.path)
+        applyWithAudio(cmd, options, audio)
+      } else {
+        applyOutput(cmd, options)
+      }
       donePromise = new Promise<void>((resolve, reject) => {
         cmd.on('end', () => resolve()).on('error', (err) => reject(err)).save(outPath as string)
       })

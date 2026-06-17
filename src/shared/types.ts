@@ -31,6 +31,15 @@ export interface RecordingMeta {
   cursor: CursorSample[]
   createdAt: number
   sourceName: string
+  /** absolute path to the webcam/mic media on disk (webm), if any was captured */
+  cameraPath?: string
+  /** the camera/mic track has a webcam video stream */
+  hasCamera?: boolean
+  /** the camera/mic track has a microphone audio stream */
+  hasAudio?: boolean
+  /** webcam native pixel dimensions (for the overlay's aspect/cover crop) */
+  cameraWidth?: number
+  cameraHeight?: number
 }
 
 export type BackgroundKind = 'gradient' | 'solid' | 'image' | 'wallpaper' | 'none'
@@ -94,6 +103,34 @@ export interface CursorSettings {
   smoothing: number
 }
 
+export type WebcamShape = 'circle' | 'rounded' | 'square'
+
+export interface WebcamSettings {
+  /** render the webcam bubble overlay */
+  enabled: boolean
+  /** bubble center, normalized 0..1 in output (canvas) space */
+  x: number
+  y: number
+  /** bubble size as a fraction of the canvas height */
+  size: number
+  shape: WebcamShape
+  /** corner radius (px) when shape is 'rounded' */
+  cornerRadius: number
+  borderWidth: number
+  borderColor: string
+  /** drop-shadow strength, 0..1 */
+  shadow: number
+  /** mirror horizontally (natural selfie view) */
+  mirror: boolean
+}
+
+export interface AudioSettings {
+  /** include the recorded microphone audio in playback + export */
+  enabled: boolean
+  /** linear gain, 0..1.5 */
+  volume: number
+}
+
 /** A kept segment of the timeline after cuts. Times in seconds, source-relative. */
 export interface ClipSegment {
   id: string
@@ -126,6 +163,8 @@ export interface ProjectState {
   timeline: TimelineSettings
   canvas: CanvasSettings
   cursor: CursorSettings
+  webcam: WebcamSettings
+  audio: AudioSettings
 }
 
 export type ExportFormat = 'mp4' | 'webm' | 'gif' | 'mov'
@@ -158,6 +197,24 @@ export interface SaveRecordingArgs {
   fps: number
   duration: number
   sourceName: string
+  /** webcam/mic media bytes (webm), if captured */
+  camera?: ArrayBuffer | null
+  hasCamera?: boolean
+  hasAudio?: boolean
+  cameraWidth?: number
+  cameraHeight?: number
+}
+
+/** Audio mux instructions passed to the exporter alongside the frame stream. */
+export interface ExportAudio {
+  /** absolute path to the source media holding the mic audio */
+  path: string
+  /** kept source-time segments (post-cut), in seconds */
+  segments: { start: number; end: number }[]
+  /** global playback speed multiplier */
+  speed: number
+  /** linear gain 0..1.5 */
+  volume: number
 }
 
 export interface DefaultProjectArgs {

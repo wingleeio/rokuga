@@ -11,10 +11,11 @@ import { Field, SliderRow } from './controls'
 
 interface Props {
   mediaBlob: Blob
+  cameraBlob: Blob | null
   onClose: () => void
 }
 
-export default function ExportPanel({ mediaBlob, onClose }: Props): JSX.Element {
+export default function ExportPanel({ mediaBlob, cameraBlob, onClose }: Props): JSX.Element {
   const { project } = useEditor()
   const [format, setFormat] = useState<ExportFormat>('mp4')
   const [height, setHeight] = useState(project.canvas.outputHeight)
@@ -34,7 +35,7 @@ export default function ExportPanel({ mediaBlob, onClose }: Props): JSX.Element 
     setStatus(`Rendering ${format.toUpperCase()}…`)
     const options: ExportOptions = { format, height, fps, quality }
     try {
-      const path = await exportProject(project, mediaBlob, options, (r) => setProgress(r))
+      const path = await exportProject(project, mediaBlob, cameraBlob, options, (r) => setProgress(r))
       if (path) {
         setSavedPath(path)
         setStatus('Done')
