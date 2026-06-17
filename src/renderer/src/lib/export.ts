@@ -30,7 +30,22 @@ export async function exportProject(
   onProgress: (ratio: number) => void
 ): Promise<string | null> {
   const video = hiddenVideo(mediaBlob)
-  const camVideo = cameraBlob ? hiddenVideo(cameraBlob) : null
+
+  // The webcam track is a MediaRecorder webm (no seek cues) — seeking it per
+  // frame freezes on one frame. Swap in a seekable transcode for the export.
+  let camVideo: HTMLVideoElement | null = null
+  if (cameraBlob && project.recording.hasCamera) {
+    let camSrc: Blob = cameraBlob
+    try {
+      const seekable = project.recording.cameraPath
+        ? await window.rokuga.makeSeekable(project.recording.cameraPath)
+        : null
+      if (seekable) camSrc = new Blob([seekable as BlobPart], { type: 'video/mp4' })
+    } catch {
+      /* fall back to the raw webm (may not seek perfectly) */
+    }
+    camVideo = hiddenVideo(camSrc)
+  }
 
   try {
     await prepareVideo(video, project.recording.duration)

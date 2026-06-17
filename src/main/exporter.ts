@@ -1,5 +1,6 @@
 import { dialog, type IpcMain, type BrowserWindow } from 'electron'
 import { PassThrough } from 'stream'
+import { promises as fs, existsSync } from 'fs'
 import ffmpeg from 'fluent-ffmpeg'
 import ffmpegStatic from 'ffmpeg-static'
 import type { ExportAudio, ExportOptions } from '../shared/types'
@@ -191,6 +192,29 @@ export function registerExportHandlers(
       outPath = null
       return null
     }
+  })
+
+  // MediaRecorder webm has no seek cues, so frame-stepped export (which seeks
+  // the webcam to each frame's time) would freeze on a single frame. Transcode
+  // to a seekable H.264 mp4 once and hand the bytes back for the export's hidden
+  // <video>. Cached next to the source; audio is dropped (only video is needed —
+  // the mic audio is muxed separately from the original file).
+  ipcMain.handle('media:makeSeekable', async (_e, srcPath: string): Promise<Buffer | null> => {
+    if (!srcPath || !existsSync(srcPath)) return null
+    const out = `${srcPath.replace(/\.[^.]+$/, '')}.seek.mp4`
+    if (!existsSync(out)) {
+      await new Promise<void>((resolve, reject) => {
+        ffmpeg(srcPath)
+          .outputOptions([
+            '-an', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20',
+            '-pix_fmt', 'yuv420p', '-movflags', '+faststart'
+          ])
+          .on('end', () => resolve())
+          .on('error', (e) => reject(e))
+          .save(out)
+      })
+    }
+    return fs.readFile(out)
   })
 
   ipcMain.handle('export:cancel', () => {

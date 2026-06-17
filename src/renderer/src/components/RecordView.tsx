@@ -360,25 +360,42 @@ export default function RecordView({ onRecorded, onOpen, busy }: Props): JSX.Ele
         </div>
       </header>
 
-      <div className="flex-1 overflow-y-auto overscroll-contain px-7 py-6">
-        {error && (
-          <div className="mb-4 rounded-lg border border-destructive/40 bg-destructive/10 px-3.5 py-2.5 text-[13px] text-red-300">
-            {error}
-          </div>
-        )}
-        {busy && (
-          <div className="mb-4 rounded-lg border border-border bg-card px-3.5 py-2.5 text-[13px] text-muted-foreground">
-            {busy}
-          </div>
-        )}
+      <div className="relative min-h-0 flex-1">
+        <div className="h-full overflow-y-auto overscroll-contain px-7 py-6">
+          {error && (
+            <div className="mb-4 rounded-lg border border-destructive/40 bg-destructive/10 px-3.5 py-2.5 text-[13px] text-red-300">
+              {error}
+            </div>
+          )}
+          {busy && (
+            <div className="mb-4 rounded-lg border border-border bg-card px-3.5 py-2.5 text-[13px] text-muted-foreground">
+              {busy}
+            </div>
+          )}
 
-        <SourceGroup title="Screens" icon={Monitor} sources={screens} selected={selected} onSelect={setSelected} />
-        <SourceGroup title="Windows" icon={AppWindow} sources={windows} selected={selected} onSelect={setSelected} />
-        {!loading && sources.length === 0 && (
-          <p className="max-w-lg text-xs leading-relaxed text-muted-foreground">
-            No capture sources found. On macOS, grant Screen Recording permission to this app in
-            System Settings → Privacy &amp; Security, then Refresh.
-          </p>
+          <SourceGroup title="Screens" icon={Monitor} sources={screens} selected={selected} onSelect={setSelected} />
+          <SourceGroup title="Windows" icon={AppWindow} sources={windows} selected={selected} onSelect={setSelected} />
+          {!loading && sources.length === 0 && (
+            <p className="max-w-lg text-xs leading-relaxed text-muted-foreground">
+              No capture sources found. On macOS, grant Screen Recording permission to this app in
+              System Settings → Privacy &amp; Security, then Refresh.
+            </p>
+          )}
+        </div>
+
+        {/* Live preview of the selected camera so you can check framing first. */}
+        {camId !== OFF && (
+          <div className="absolute bottom-5 left-7 z-10 overflow-hidden rounded-xl border border-border bg-black shadow-2xl ring-1 ring-black/40">
+            <video
+              ref={webcamPreviewRef}
+              className="block h-[124px] w-[220px] -scale-x-100 bg-black object-cover"
+              muted
+              playsInline
+            />
+            <div className="pointer-events-none absolute bottom-1.5 left-2 flex items-center gap-1.5 rounded-md bg-black/55 px-1.5 py-0.5 text-[10px] font-medium text-white/90 backdrop-blur">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" /> Camera
+            </div>
+          </div>
         )}
       </div>
 
@@ -437,17 +454,23 @@ function DeviceSelect({
   const named = devices.filter(
     (d) => d.deviceId && d.deviceId !== 'default' && d.deviceId !== 'communications'
   )
+  const active = value !== OFF
+  // Use a <div> (not <span>) inner wrapper so the trigger's `[&>span]:line-clamp-1`
+  // rule doesn't override the icon+label flex layout.
   return (
     <Select value={value} onValueChange={onChange}>
-      <SelectTrigger className="h-9 w-[178px]">
-        <span className="flex min-w-0 items-center gap-2">
-          <Icon
-            className={cn('h-4 w-4 flex-none', value === OFF ? 'text-muted-foreground' : 'text-foreground')}
-          />
-          <span className="truncate">
+      <SelectTrigger
+        className={cn(
+          'h-9 w-[188px] rounded-lg',
+          active ? 'border-foreground/20 bg-secondary/70 text-foreground' : 'text-muted-foreground'
+        )}
+      >
+        <div className="flex min-w-0 items-center gap-2">
+          <Icon className={cn('h-4 w-4 flex-none', active ? 'text-foreground' : 'text-muted-foreground')} />
+          <span className="truncate text-[13px]">
             <SelectValue />
           </span>
-        </span>
+        </div>
       </SelectTrigger>
       <SelectContent>
         <SelectItem value={OFF}>{offLabel}</SelectItem>

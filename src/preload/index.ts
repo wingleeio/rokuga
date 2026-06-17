@@ -53,6 +53,8 @@ const api = {
     ipcRenderer.invoke('export:frame', buffer),
   exportEnd: (): Promise<string | null> => ipcRenderer.invoke('export:end'),
   exportCancel: (): Promise<boolean> => ipcRenderer.invoke('export:cancel'),
+  makeSeekable: (path: string): Promise<Uint8Array | null> =>
+    ipcRenderer.invoke('media:makeSeekable', path),
 
   openFileDialog: (filters: Electron.FileFilter[]): Promise<string | null> =>
     ipcRenderer.invoke('dialog:openFile', filters),
