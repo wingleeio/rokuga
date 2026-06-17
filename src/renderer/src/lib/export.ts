@@ -117,10 +117,6 @@ export async function exportProject(
 
 function seekTo(video: HTMLVideoElement, t: number): Promise<void> {
   return new Promise((resolve) => {
-    if (Math.abs(video.currentTime - t) < 0.0005) {
-      resolve()
-      return
-    }
     let done = false
     const finish = (): void => {
       if (done) return
@@ -129,7 +125,10 @@ function seekTo(video: HTMLVideoElement, t: number): Promise<void> {
       resolve()
     }
     video.addEventListener('seeked', finish)
-    video.currentTime = t
+    // Always force a real seek (and decode) — even when already at `t` — by
+    // nudging a hair. Otherwise the very first frame (currentTime already ≈ 0)
+    // would resolve instantly and get drawn before it's decoded, i.e. black.
+    video.currentTime = Math.abs(video.currentTime - t) < 1e-4 ? t + 1e-3 : t
     setTimeout(finish, 1000) // safety: never hang if 'seeked' doesn't fire
   })
 }
